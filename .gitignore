@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 project_roadmap.html
+requirements.txt
 
 # C extensions
 *.so
