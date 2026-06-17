@@ -1,0 +1,62 @@
+{
+  "title": "Daily Trends",
+  "uid": "agent-daily",
+  "tags": ["agent", "daily", "trends"],
+  "timezone": "browser",
+  "schemaVersion": 36,
+  "refresh": "1m",
+  "panels": [
+    {
+      "title": "Total Emails Processed (24h)",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "increase(emails_processed_total[24h])",
+          "legendFormat": "Processed (24h)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "LLM Cost Accrued (24h)",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "targets": [
+        {
+          "expr": "increase(gemini_cost_usd_total[24h])",
+          "legendFormat": "Cost USD",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Gemini API Calls (24h)",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "targets": [
+        {
+          "expr": "increase(gemini_calls_total[24h])",
+          "legendFormat": "Total LLM Calls",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "LLM Calls by Node (24h Trend)",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "increase(gemini_calls_total[1h])",
+          "legendFormat": "{{node_name}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

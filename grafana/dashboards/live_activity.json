@@ -1,0 +1,54 @@
+{
+  "title": "Live Agent Activity",
+  "uid": "agent-live",
+  "tags": ["agent", "live"],
+  "timezone": "browser",
+  "schemaVersion": 36,
+  "refresh": "10s",
+  "panels": [
+    {
+      "title": "Emails Processed (per min)",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "rate(emails_processed_total[1m]) * 60",
+          "legendFormat": "Emails / Min",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Agent Execution Latency (avg)",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "rate(agent_run_seconds_sum[1m]) / rate(agent_run_seconds_count[1m])",
+          "legendFormat": "Latency (s)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Security Triggers (PII & Injection)",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "increase(pii_detections_total[5m])",
+          "legendFormat": "PII Detections (5m)",
+          "refId": "A"
+        },
+        {
+          "expr": "increase(injection_attempts_total[5m])",
+          "legendFormat": "Injection Attempts (5m)",
+          "refId": "B"
+        }
+      ]
+    }
+  ]
+}

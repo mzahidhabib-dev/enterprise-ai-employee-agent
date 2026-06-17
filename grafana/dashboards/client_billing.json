@@ -1,0 +1,60 @@
+{
+  "title": "Client Billing & Retainer Metrics",
+  "uid": "agent-billing",
+  "tags": ["agent", "billing", "client"],
+  "timezone": "browser",
+  "schemaVersion": 36,
+  "refresh": "5m",
+  "panels": [
+    {
+      "title": "Cumulative Cost by Agent/Client (USD)",
+      "type": "barchart",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "sum by (agent_id) (gemini_cost_usd_total)",
+          "legendFormat": "{{agent_id}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        }
+      }
+    },
+    {
+      "title": "Emails Processed by Agent/Client",
+      "type": "piechart",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 10, "w": 12, "x": 0, "y": 10},
+      "targets": [
+        {
+          "expr": "sum by (agent_id) (emails_processed_total)",
+          "legendFormat": "{{agent_id}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Cost Efficiency (Cost per Email Processed)",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "Prometheus"},
+      "gridPos": {"h": 10, "w": 12, "x": 12, "y": 10},
+      "targets": [
+        {
+          "expr": "sum by (agent_id) (gemini_cost_usd_total) / sum by (agent_id) (emails_processed_total)",
+          "legendFormat": "{{agent_id}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4
+        }
+      }
+    }
+  ]
+}

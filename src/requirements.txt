@@ -1,0 +1,19 @@
+# Project dependencies
+langchain
+langchain-google-genai
+langgraph
+crewai
+python-dotenv
+sqlalchemy
+psycopg2-binary
+presidio-analyzer
+presidio-anonymizer
+spacy
+redis
+ragas
+datasets
+pytest
+jinja2
+langsmith
+prometheus-client
+apscheduler
