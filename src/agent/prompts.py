@@ -13,8 +13,8 @@ from enum import Enum
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
-from langchain.prompts import PromptTemplate
-from langchain.output_parsers import PydanticOutputParser
+from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import PydanticOutputParser
 
 # ------------------------------------------------------------
 # 1. Email Classification

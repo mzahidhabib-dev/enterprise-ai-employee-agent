@@ -1,0 +1,12 @@
+services:
+  agent:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    # This allows the container to talk to services running on your Windows localhost (like Redis)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

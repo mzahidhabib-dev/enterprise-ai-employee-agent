@@ -8,13 +8,23 @@ and the daily report generation. Protected by API key authentication.
 
 import os
 import uuid
+from dotenv import load_dotenv
+
+# Load env variables before importing local modules
+load_dotenv()
 
 from fastapi import FastAPI, Depends, HTTPException, Security, Request
 from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse
 from fastapi.security import APIKeyHeader
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
+from typing import Optional
+from sqlalchemy import func
 
+from src.db.database import SessionLocal, engine, Base
+from src.db.models import EmailLog, Contact, DailyReport, EvalResult, CostLog
+
+# Restored strictly per the roadmap
 from src.agent.graph import agent_graph
 from src.agent.report_crew import generate_and_send_daily_report
 from src.tools.gmail_tools import mark_email_read
@@ -29,6 +39,9 @@ import time
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Startup: Ensure database tables are created
+    Base.metadata.create_all(bind=engine)
+    
     # Startup: Start the background cost alerter
     scheduler = BackgroundScheduler()
     scheduler.add_job(check_daily_cost, 'interval', hours=1)
@@ -105,6 +118,7 @@ async def trigger_agent(api_key: str = Depends(verify_api_key)):
         
         # Track execution latency
         start_time = time.time()
+        # 2. Run LangGraph workflow
         result = agent_graph.invoke(initial_state, config=config)
         duration = time.time() - start_time
         agent_latency.labels(agent_id="default").observe(duration)
@@ -179,3 +193,67 @@ async def metrics():
     Scraped every 15s to populate the Grafana dashboard.
     """
     return get_prometheus_metrics()
+
+# --- Dashboard API Endpoints (Phase 7 Frontend Support) ---
+
+class FeedbackRequest(BaseModel):
+    is_correct: bool
+    notes: Optional[str] = None
+
+@app.get("/dashboard/metrics")
+async def get_dashboard_metrics(api_key: str = Depends(verify_api_key)):
+    with SessionLocal() as db:
+        emails_count = db.query(EmailLog).count()
+        leads_count = db.query(Contact).filter(Contact.is_lead == True).count()
+        cost = db.query(func.sum(CostLog.cost_usd)).scalar() or 0.0
+        return {"emails_processed": emails_count, "leads_found": leads_count, "total_cost_usd": cost}
+
+@app.get("/emails")
+async def get_emails(skip: int = 0, limit: int = 50, api_key: str = Depends(verify_api_key)):
+    with SessionLocal() as db:
+        emails = db.query(EmailLog).order_by(EmailLog.processed_at.desc()).offset(skip).limit(limit).all()
+        return {"data": [{"id": e.id, "subject": e.subject, "from": e.sender, "action": e.classification_action, "priority": e.priority, "date": e.processed_at, "feedback_correct": e.feedback_correct} for e in emails]}
+
+@app.patch("/emails/{email_id}/feedback")
+async def update_email_feedback(email_id: str, feedback: FeedbackRequest, api_key: str = Depends(verify_api_key)):
+    with SessionLocal() as db:
+        email = db.query(EmailLog).filter(EmailLog.id == email_id).first()
+        if not email:
+            raise HTTPException(status_code=404, detail="Email not found")
+        email.feedback_correct = feedback.is_correct
+        email.feedback_notes = feedback.notes
+        db.commit()
+        return {"status": "success"}
+
+@app.get("/contacts")
+async def get_contacts(skip: int = 0, limit: int = 50, api_key: str = Depends(verify_api_key)):
+    with SessionLocal() as db:
+        contacts = db.query(Contact).offset(skip).limit(limit).all()
+        return {"data": [{"id": c.id, "email": c.email, "name": c.name, "company": c.company, "is_lead": c.is_lead} for c in contacts]}
+
+@app.get("/contacts/{contact_id}/history")
+async def get_contact_history(contact_id: str, api_key: str = Depends(verify_api_key)):
+    with SessionLocal() as db:
+        contact = db.query(Contact).filter(Contact.id == contact_id).first()
+        if not contact:
+            raise HTTPException(status_code=404, detail="Contact not found")
+        emails = db.query(EmailLog).filter(EmailLog.sender == contact.email).all()
+        return {"data": [{"id": e.id, "subject": e.subject, "action": e.classification_action, "date": e.processed_at} for e in emails]}
+
+@app.get("/reports/daily")
+async def get_daily_reports(skip: int = 0, limit: int = 10, api_key: str = Depends(verify_api_key)):
+    with SessionLocal() as db:
+        reports = db.query(DailyReport).order_by(DailyReport.created_at.desc()).offset(skip).limit(limit).all()
+        return {"data": [{"id": r.id, "text": r.report_text, "date": r.created_at} for r in reports]}
+
+@app.get("/reports/evals")
+async def get_evaluations(skip: int = 0, limit: int = 10, api_key: str = Depends(verify_api_key)):
+    with SessionLocal() as db:
+        evals = db.query(EvalResult).order_by(EvalResult.created_at.desc()).offset(skip).limit(limit).all()
+        return {"data": [{"id": e.id, "accuracy": e.accuracy_pct, "faithfulness": e.faithfulness_score, "relevancy": e.relevancy_score, "date": e.created_at} for e in evals]}
+
+@app.get("/billing/usage")
+async def get_billing_usage(skip: int = 0, limit: int = 100, api_key: str = Depends(verify_api_key)):
+    with SessionLocal() as db:
+        logs = db.query(CostLog).order_by(CostLog.timestamp.desc()).offset(skip).limit(limit).all()
+        return {"data": [{"id": l.id, "email_id": l.email_id, "node": l.node_name, "tokens": l.input_tokens + l.output_tokens, "cost": l.cost_usd, "date": l.timestamp} for l in logs]}
