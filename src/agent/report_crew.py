@@ -11,7 +11,7 @@ import json
 from datetime import date
 
 from crewai import Agent, Task, Crew, Process
-from langchain_core.tools import tool
+from crewai.tools import tool
 
 from src.agent.llm import llm
 from src.db.database import SessionLocal
@@ -19,8 +19,7 @@ from src.db.models import EmailLog, Contact, DailyReport
 from src.tools.slack_tools import send_slack_alert
 
 
-@tool
-def db_query_tool() -> str:
+def get_db_metrics() -> str:
     """Queries the database for today's email processing metrics and leads."""
     today = date.today()
     try:
@@ -63,21 +62,14 @@ def generate_and_send_daily_report() -> str:
     Orchestrates the CrewAI 3-agent team, saves the result to the DB, 
     and sends a Slack alert.
     """
-    # 1. Instantiate the Agents
-    researcher_agent = Agent(
-        role="Data Researcher",
-        goal="Query today's EmailLog and Contact tables and return raw metrics as JSON",
-        backstory="An analytical researcher who strictly uses tools to extract precise metrics from databases.",
-        tools=[db_query_tool],
-        llm=llm,
-        verbose=True,
-    )
+    # 1. Fetch metrics deterministically in Python to prevent LLM hallucinations
+    metrics_json = get_db_metrics()
 
     writer_agent = Agent(
         role="Report Writer",
         goal="Write a concise 4-sentence daily activity report from the metrics JSON",
         backstory="A clear, concise business writer who summarizes data into actionable executive summaries.",
-        llm=llm,
+        llm="gemini/gemini-flash-latest",
         verbose=True,
     )
 
@@ -85,19 +77,13 @@ def generate_and_send_daily_report() -> str:
         role="Quality Reviewer",
         goal="Check the report for accuracy against the metrics. If a number is wrong, correct it. Return the final report text only.",
         backstory="A meticulous QA reviewer who ensures narrative reports exactly match the underlying hard data.",
-        llm=llm,
+        llm="gemini/gemini-flash-latest",
         verbose=True,
     )
 
     # 2. Define the Tasks
-    task_research = Task(
-        description="Use the db_query_tool to extract today's performance metrics. Return the raw JSON output.",
-        expected_output="JSON string containing today's metrics.",
-        agent=researcher_agent,
-    )
-
     task_write = Task(
-        description="Using the JSON metrics from the researcher, draft a concise 4-sentence daily activity report.",
+        description=f"Using these exact metrics: {metrics_json}, draft a concise 4-sentence daily activity report.",
         expected_output="A 4-sentence paragraph summarizing the daily agent activity.",
         agent=writer_agent,
     )
@@ -110,8 +96,8 @@ def generate_and_send_daily_report() -> str:
 
     # 3. Create the Crew and Kickoff
     crew = Crew(
-        agents=[researcher_agent, writer_agent, reviewer_agent],
-        tasks=[task_research, task_write, task_review],
+        agents=[writer_agent, reviewer_agent],
+        tasks=[task_write, task_review],
         process=Process.sequential,
         verbose=True,
     )
@@ -120,20 +106,18 @@ def generate_and_send_daily_report() -> str:
     crew_output = crew.kickoff()
     final_report_text = str(crew_output)
     
-    # Try to extract the JSON metrics from the first task for logging
-    metrics_json = None
+    metrics_dict = None
     try:
-        if task_research.output and task_research.output.raw:
-            metrics_json = json.loads(task_research.output.raw)
+        metrics_dict = json.loads(metrics_json)
     except:
-        pass # fallback gracefully if extraction fails
+        pass
 
     # 4. Save to PostgreSQL
     try:
         with SessionLocal() as db:
             report_record = DailyReport(
                 report_text=final_report_text,
-                metrics_json=metrics_json
+                metrics_json=metrics_dict
             )
             db.add(report_record)
             db.commit()
@@ -143,7 +127,7 @@ def generate_and_send_daily_report() -> str:
     # 5. Send Slack Alert
     try:
         send_slack_alert.invoke({
-            "channel": "#reports",
+            "channel": "#ai-employee-agent-alerts",
             "title": "📊 AI Agent Daily Activity Report",
             "message": final_report_text,
             "priority": "low"

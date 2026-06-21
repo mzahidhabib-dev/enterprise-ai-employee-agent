@@ -45,6 +45,10 @@ async def lifespan(app: FastAPI):
     # Startup: Start the background cost alerter
     scheduler = BackgroundScheduler()
     scheduler.add_job(check_daily_cost, 'interval', hours=1)
+    
+    # Phase 3: Run CrewAI end-of-day report at 17:00 daily
+    scheduler.add_job(generate_and_send_daily_report, 'cron', hour=17, minute=0)
+    
     scheduler.start()
     print("APScheduler started: cost tracking background job active.")
     
@@ -166,7 +170,7 @@ async def trigger_agent(api_key: str = Depends(verify_api_key)):
 
 
 @app.post("/agent/daily-report")
-async def daily_report(api_key: str = Depends(verify_api_key)):
+def daily_report(api_key: str = Depends(verify_api_key)):
     """
     Triggered by n8n at 11 PM daily.
     Executes the CrewAI role-based agents (Phase 3) to generate the daily report.
