@@ -44,6 +44,10 @@ class EmailLog(Base):
     # Generated draft
     draft_reply = Column(Text)
     
+    # Feedback from dashboard
+    feedback_correct = Column(Boolean, nullable=True)
+    feedback_notes = Column(Text, nullable=True)
+    
     # Execution trace details
     errors = Column(JSON, default=list)
     processed_at = Column(DateTime, default=datetime.utcnow)

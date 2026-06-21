@@ -55,13 +55,6 @@ def route_after_enrich(state: AgentState) -> str:
     is_lead = enrichment.isLead if enrichment else False
     priority = classification.priority.value if classification else "low"
 
-    # Technically LangGraph conditional edges shouldn't mutate state directly,
-    # but since Python dicts are passed by reference, this satisfies the prompt requirement.
-    if is_lead or priority == "high":
-        state["should_alert"] = True
-    else:
-        state["should_alert"] = False
-
     return "crm_node"
 
 

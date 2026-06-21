@@ -4,7 +4,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 # Singleton LLM instance – swap model here to change globally
 llm = ChatGoogleGenerativeAI(
-    model="gemini-1.5-flash",
+    model="gemini-flash-latest",
     temperature=0,
     api_key=os.getenv("GEMINI_API_KEY"),
 )

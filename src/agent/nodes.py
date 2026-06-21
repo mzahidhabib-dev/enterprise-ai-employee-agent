@@ -34,6 +34,9 @@ def fetch_emails_node(state: AgentState) -> AgentState:
         # fetch_unread_emails is a LangChain @tool, so we use .invoke()
         emails = fetch_unread_emails.invoke({"max_results": 10})
         state["emails"] = emails
+        if emails and not state.get("current_email"):
+            state["current_email"] = emails[0]
+            
         if "errors" not in state:
             state["errors"] = []
     except Exception as e:
@@ -164,6 +167,15 @@ def enrich_node(state: AgentState) -> AgentState:
         result = chain.invoke({"email_body": redacted_body}, config={"callbacks": [cb]})
         
         state["enrichment"] = result
+        
+        # Determine if we should trigger a Slack alert
+        classification = state.get("classification")
+        is_lead = result.isLead if result else False
+        priority = classification.priority.value if classification else "low"
+        if is_lead or priority == "high":
+            state["should_alert"] = True
+        else:
+            state["should_alert"] = False
     except Exception as e:
         state.setdefault("errors", []).append(f"enrich_node error: {e}\n{traceback.format_exc()}")
     return state
@@ -216,7 +228,7 @@ def alert_node(state: AgentState) -> AgentState:
             message = f"*From:* {sender}\n*Subject:* {subject}\n*Priority:* {priority}\n*Is Lead:* {is_lead}"
 
             send_slack_alert.invoke({
-                "channel": "#alerts",
+                "channel": "#ai-employee-agent-alerts",
                 "title": title,
                 "message": message,
                 "priority": priority
@@ -237,21 +249,23 @@ def save_node(state: AgentState) -> AgentState:
         classification = state.get("classification")
 
         with SessionLocal() as db:
-            log = EmailLog(
-                message_id=email.get("id"),
-                thread_id=email.get("threadId"),
-                sender_address=email.get("from"),
-                subject=email.get("subject"),
-                body_snippet=email.get("snippet"),
-                classification_action=classification.action.value if classification else None,
-                priority=classification.priority.value if classification else None,
-                category=classification.category.value if classification else None,
-                sentiment=classification.sentiment.value if classification else None,
-                summary=classification.summary if classification else None,
-                draft_reply=state.get("draft_reply"),
-                errors=state.get("errors", []),
-            )
-            db.add(log)
+            log = db.query(EmailLog).filter(EmailLog.message_id == email.get("id")).first()
+            if not log:
+                log = EmailLog(message_id=email.get("id"))
+                db.add(log)
+            
+            log.thread_id = email.get("threadId")
+            log.sender_address = email.get("from")
+            log.subject = email.get("subject")
+            log.body_snippet = email.get("snippet")
+            log.classification_action = classification.action.value if classification else None
+            log.priority = classification.priority.value if classification else None
+            log.category = classification.category.value if classification else None
+            log.sentiment = classification.sentiment.value if classification else None
+            log.summary = classification.summary if classification else None
+            log.draft_reply = state.get("draft_reply")
+            log.errors = state.get("errors", [])
+            
             db.commit()
             
         log_event("email_processed", None, None, f"Successfully completed pipeline for email {email.get('id')}")

@@ -46,7 +46,7 @@ venv.bak/
 *.swo
 
 # Local databases
-*.sqlite3
+*.sqlite*
 *.db
 
 # Logs and databases

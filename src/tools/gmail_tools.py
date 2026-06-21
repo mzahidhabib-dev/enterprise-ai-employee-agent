@@ -12,6 +12,7 @@ OAuth2 credentials are read from environment variables:
 """
 
 import os
+import base64
 from typing import List, Dict
 
 from google.oauth2.credentials import Credentials
@@ -68,12 +69,9 @@ def fetch_unread_emails(max_results: int = 10) -> List[Dict]:
                 if part.get("mimeType") == "text/plain":
                     data = part.get("body", {}).get("data", "")
                     if data:
-                        body = (
-                            data.encode("utf-8")
-                            .decode("base64")
-                            .replace("\r", "")
-                            .replace("\n", "\n")
-                        )
+                        # Gmail uses urlsafe base64 encoding
+                        decoded_bytes = base64.urlsafe_b64decode(data)
+                        body = decoded_bytes.decode("utf-8", errors="replace")
                         break
             results.append(
                 {

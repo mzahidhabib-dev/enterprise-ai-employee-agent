@@ -83,6 +83,7 @@ class TriggerResponse(BaseModel):
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     """Checks Redis rate limit for /agent/trigger and logs the event."""
+    print(f"--- [DEBUG] Received request: {request.method} {request.url.path} ---")
     if request.url.path == "/agent/trigger" and request.method == "POST":
         api_key = request.headers.get(API_KEY_NAME)
         ip_address = request.client.host if request.client else "unknown"
@@ -107,6 +108,7 @@ async def trigger_agent(api_key: str = Depends(verify_api_key)):
     """
     total_processed = 0
     all_errors = []
+    processed_ids = set() # Track emails to prevent infinite loops
     
     # Batch loop: The graph processes one email at a time.
     while True:
@@ -118,9 +120,13 @@ async def trigger_agent(api_key: str = Depends(verify_api_key)):
         
         # Track execution latency
         start_time = time.time()
+        print(f"\n--- [AGENT LOOP] Fetching and processing next email... ---")
+        
         # 2. Run LangGraph workflow
         result = agent_graph.invoke(initial_state, config=config)
+        
         duration = time.time() - start_time
+        print(f"--- [AGENT LOOP] Finished in {duration:.2f} seconds. ---")
         agent_latency.labels(agent_id="default").observe(duration)
         
         emails = result.get("emails", [])
@@ -130,16 +136,26 @@ async def trigger_agent(api_key: str = Depends(verify_api_key)):
             
         current_email = result.get("current_email")
         if current_email:
+            email_id = current_email["id"]
+            if email_id in processed_ids:
+                print(f"--- [WARNING] Email {email_id} was already processed! Breaking infinite loop. ---")
+                break
+            processed_ids.add(email_id)
+            
             # Mark the processed email as read so the next iteration doesn't fetch it again
             try:
-                mark_email_read.invoke({"message_id": current_email["id"]})
+                mark_email_read.invoke({"message_id": email_id})
+                print(f"--- [SUCCESS] Marked email {email_id} as read. ---")
             except Exception as e:
-                all_errors.append(f"Failed to mark email {current_email['id']} read: {e}")
+                error_msg = f"Failed to mark email {email_id} read: {e}"
+                print(f"--- [ERROR] {error_msg} ---")
+                all_errors.append(error_msg)
             
             total_processed += 1
             
         # Accumulate any errors from this graph run
         if result.get("errors"):
+            print(f"--- [GRAPH ERRORS] {result['errors']} ---")
             all_errors.extend(result["errors"])
             
     return TriggerResponse(
@@ -212,7 +228,7 @@ async def get_dashboard_metrics(api_key: str = Depends(verify_api_key)):
 async def get_emails(skip: int = 0, limit: int = 50, api_key: str = Depends(verify_api_key)):
     with SessionLocal() as db:
         emails = db.query(EmailLog).order_by(EmailLog.processed_at.desc()).offset(skip).limit(limit).all()
-        return {"data": [{"id": e.id, "subject": e.subject, "from": e.sender, "action": e.classification_action, "priority": e.priority, "date": e.processed_at, "feedback_correct": e.feedback_correct} for e in emails]}
+        return {"data": [{"id": e.id, "subject": e.subject, "from": e.sender_address, "action": e.classification_action, "priority": e.priority, "summary": e.summary, "sentiment": e.sentiment, "draft_reply": e.draft_reply, "date": e.processed_at, "feedback_correct": e.feedback_correct} for e in emails]}
 
 @app.patch("/emails/{email_id}/feedback")
 async def update_email_feedback(email_id: str, feedback: FeedbackRequest, api_key: str = Depends(verify_api_key)):
