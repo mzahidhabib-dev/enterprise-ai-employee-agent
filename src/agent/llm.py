@@ -1,6 +1,6 @@
 # src/agent/llm.py
 import os
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 
 # Singleton LLM instance – swap model here to change globally
 llm = ChatGoogleGenerativeAI(
@@ -9,4 +9,9 @@ llm = ChatGoogleGenerativeAI(
     api_key=os.getenv("GEMINI_API_KEY"),
 )
 
-__all__ = ["llm"]
+embeddings = GoogleGenerativeAIEmbeddings(
+    model="models/text-embedding-004",
+    google_api_key=os.getenv("GEMINI_API_KEY")
+)
+
+__all__ = ["llm", "embeddings"]

@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 # Load env variables before importing local modules
 load_dotenv()
 
-from fastapi import FastAPI, Depends, HTTPException, Security, Request
+from fastapi import FastAPI, Depends, HTTPException, Security, Request, BackgroundTasks
 from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse
 from fastapi.security import APIKeyHeader
 from contextlib import asynccontextmanager
@@ -48,6 +48,16 @@ async def lifespan(app: FastAPI):
     
     # Phase 3: Run CrewAI end-of-day report at 17:00 daily
     scheduler.add_job(generate_and_send_daily_report, 'cron', hour=17, minute=0)
+    
+    # Phase 4/5: Run RAGAS Accuracy Evaluation weekly (Friday at 23:00)
+    def safe_run_eval():
+        try:
+            from src.eval.ragas_eval import run_scheduled_evaluation
+            run_scheduled_evaluation()
+        except Exception as e:
+            print(f"Failed to run scheduled evaluation: {e}")
+            
+    scheduler.add_job(safe_run_eval, 'cron', day_of_week='fri', hour=23, minute=0)
     
     scheduler.start()
     print("APScheduler started: cost tracking background job active.")
@@ -188,6 +198,23 @@ def daily_report(api_key: str = Depends(verify_api_key)):
             "message": f"Failed to generate report: {str(e)}"
         }
 
+@app.post("/agent/trigger-eval")
+def trigger_eval_manually(background_tasks: BackgroundTasks, api_key: str = Depends(verify_api_key)):
+    """
+    Manually triggers the accuracy evaluation in the background.
+    """
+    try:
+        from src.eval.ragas_eval import run_scheduled_evaluation
+        background_tasks.add_task(run_scheduled_evaluation)
+        
+        return {
+            "status": "evaluation_started", 
+            "message": "Evaluation started in the background. Check logs or /reports/accuracy in a few minutes."
+        }
+    except Exception as e:
+        import traceback
+        return {"status": "error", "error": str(e), "traceback": traceback.format_exc()}
+
 @app.get("/reports/accuracy", response_class=HTMLResponse)
 async def get_accuracy_report(api_key: str = Depends(verify_api_key)):
     """
@@ -232,7 +259,7 @@ async def get_dashboard_metrics(api_key: str = Depends(verify_api_key)):
 async def get_emails(skip: int = 0, limit: int = 50, api_key: str = Depends(verify_api_key)):
     with SessionLocal() as db:
         emails = db.query(EmailLog).order_by(EmailLog.processed_at.desc()).offset(skip).limit(limit).all()
-        return {"data": [{"id": e.id, "subject": e.subject, "from": e.sender_address, "action": e.classification_action, "priority": e.priority, "summary": e.summary, "sentiment": e.sentiment, "draft_reply": e.draft_reply, "date": e.processed_at, "feedback_correct": e.feedback_correct} for e in emails]}
+        return {"data": [{"id": e.id, "subject": e.subject, "from": e.sender_address, "action": e.classification_action, "priority": e.priority, "summary": e.summary, "sentiment": e.sentiment, "draft_reply": e.draft_reply, "research_context": getattr(e, "research_context", None), "date": e.processed_at, "feedback_correct": e.feedback_correct} for e in emails]}
 
 @app.patch("/emails/{email_id}/feedback")
 async def update_email_feedback(email_id: str, feedback: FeedbackRequest, api_key: str = Depends(verify_api_key)):

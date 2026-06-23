@@ -46,7 +46,7 @@ def check_daily_cost():
                 
                 # Broadcast using our existing LangChain slack tool
                 send_slack_alert.invoke({
-                    "channel": "#billing-alerts",
+                    "channel": "#ai-agent-biling-alert",
                     "title": "💸 LLM Cost Limit Warning",
                     "message": alert_message,
                     "priority": "high"

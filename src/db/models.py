@@ -44,6 +44,9 @@ class EmailLog(Base):
     # Generated draft
     draft_reply = Column(Text)
     
+    # Context obtained from Web Research
+    research_context = Column(Text, nullable=True)
+    
     # Feedback from dashboard
     feedback_correct = Column(Boolean, nullable=True)
     feedback_notes = Column(Text, nullable=True)

@@ -16,6 +16,7 @@ from src.agent.state import AgentState
 from src.agent.nodes import (
     fetch_emails_node,
     classify_node,
+    research_node,
     draft_node,
     enrich_node,
     crm_node,
@@ -30,9 +31,6 @@ def route_after_fetch(state: AgentState) -> str:
     if not emails:
         return END
 
-    # For processing a single email in the graph, we pop the first one into current_email.
-    # Note: the full batch loop will be handled externally per Step 2.4, but we need
-    # to set current_email so the rest of the nodes function.
     if not state.get("current_email"):
         state["current_email"] = emails[0]
 
@@ -40,21 +38,19 @@ def route_after_fetch(state: AgentState) -> str:
 
 
 def route_after_classify(state: AgentState) -> str:
-    """Skip draft/enrich if action is 'skip'."""
+    """Skip draft/enrich if action is 'skip'. Else check if research is needed."""
     classification = state.get("classification")
     if classification and classification.action.value == "skip":
         return "save_node"
+    
+    if classification and classification.needs_research:
+        return "research_node"
+        
     return "draft_node"
 
 
 def route_after_enrich(state: AgentState) -> str:
     """Check lead/priority status to set should_alert before CRM."""
-    enrichment = state.get("enrichment")
-    classification = state.get("classification")
-
-    is_lead = enrichment.isLead if enrichment else False
-    priority = classification.priority.value if classification else "low"
-
     return "crm_node"
 
 
@@ -64,6 +60,7 @@ workflow = StateGraph(AgentState)
 # 2. Add all nodes
 workflow.add_node("fetch_emails_node", fetch_emails_node)
 workflow.add_node("classify_node", classify_node)
+workflow.add_node("research_node", research_node)
 workflow.add_node("draft_node", draft_node)
 workflow.add_node("enrich_node", enrich_node)
 workflow.add_node("crm_node", crm_node)
@@ -88,10 +85,12 @@ workflow.add_conditional_edges(
     route_after_classify,
     {
         "save_node": "save_node",
+        "research_node": "research_node",
         "draft_node": "draft_node",
     },
 )
 
+workflow.add_edge("research_node", "draft_node")
 workflow.add_edge("draft_node", "enrich_node")
 
 workflow.add_conditional_edges(

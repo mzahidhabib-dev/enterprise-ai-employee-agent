@@ -26,6 +26,7 @@ from src.observability.metrics import emails_processed, gemini_calls, pii_detect
 from src.observability.cost_tracker import CostTrackingCallbackHandler
 from src.db.database import SessionLocal
 from src.db.models import Contact, EmailLog
+from langchain_community.tools import DuckDuckGoSearchResults
 
 
 def fetch_emails_node(state: AgentState) -> AgentState:
@@ -86,6 +87,24 @@ def classify_node(state: AgentState) -> AgentState:
     return state
 
 
+def research_node(state: AgentState) -> AgentState:
+    """Use DuckDuckGo to search the web if classification requires it."""
+    try:
+        classification = state.get("classification")
+        if classification and classification.needs_research and classification.research_query:
+            query = classification.research_query
+            search_tool = DuckDuckGoSearchResults()
+            results = search_tool.run(query)
+            state["research_context"] = f"Search Query: {query}\nResults:\n{results}"
+            log_event("web_research", None, None, f"Searched for: {query}")
+        else:
+            state["research_context"] = ""
+    except Exception as e:
+        state["research_context"] = f"Web research failed: {str(e)}"
+        state.setdefault("errors", []).append(f"research_node error: {e}\n{traceback.format_exc()}")
+    return state
+
+
 def draft_node(state: AgentState) -> AgentState:
     """Generate a draft reply if the classification action is 'reply'."""
     try:
@@ -116,13 +135,22 @@ def draft_node(state: AgentState) -> AgentState:
             if not rate_limiter.check_and_increment("gemini:global", 15, 60):
                 log_event("rate_limited", None, None, "Gemini global limit exceeded during draft")
                 raise RateLimitError("Gemini global rate limit exceeded (15 calls per minute).")
-            
+                
             log_event("gemini_call", None, None, f"Draft node calling Gemini for {email.get('id')}")
             gemini_calls.labels(node_name="draft", agent_id="default").inc()
             
             # Inject cost tracking callback
             cb = CostTrackingCallbackHandler(node_name="draft", email_id=email.get('id', 'unknown'))
-            result = chain.invoke({"email_body": redacted_body, "tone": tone}, config={"callbacks": [cb]})
+            
+            research_context = state.get("research_context", "No additional research context provided.")
+            # Ensure tone has a fallback since we removed it from the model previously, or use default
+            tone = "professional" # We removed suggestedReplyTone in the schema update
+            
+            result = chain.invoke({
+                "email_body": redacted_body, 
+                "tone": tone, 
+                "research_context": research_context
+            }, config={"callbacks": [cb]})
             
             state["draft_reply"] = result.reply
     except Exception as e:
@@ -264,6 +292,7 @@ def save_node(state: AgentState) -> AgentState:
             log.sentiment = classification.sentiment.value if classification else None
             log.summary = classification.summary if classification else None
             log.draft_reply = state.get("draft_reply")
+            log.research_context = state.get("research_context")
             log.errors = state.get("errors", [])
             
             db.commit()

@@ -47,12 +47,14 @@ class ReplyToneEnum(str, Enum):
     CONCISE = "concise"
 
 class EmailClassification(BaseModel):
-    action: ActionEnum = Field(..., description="What the agent should do with the email")
-    priority: PriorityEnum = Field(..., description="Urgency level of the email")
-    category: CategoryEnum = Field(..., description="Business category of the email")
-    sentiment: SentimentEnum = Field(..., description="Overall sentiment of the email content")
-    summary: str = Field(..., description="One‑sentence summary of the email")
-    suggestedReplyTone: ReplyToneEnum = Field(..., description="Tone for the draft reply")
+    """Output schema for the classification node."""
+    action: ActionEnum = Field(description="The primary action to take.")
+    priority: PriorityEnum = Field(description="Priority of the email.")
+    category: CategoryEnum = Field(description="Category of the email.")
+    sentiment: SentimentEnum = Field(description="Overall sentiment of the sender.")
+    summary: str = Field(description="A concise 1-2 sentence summary of the email.")
+    needs_research: bool = Field(description="Set to true if the email asks for factual information, company details, or requires searching the web to formulate a good reply.")
+    research_query: Optional[str] = Field(description="If needs_research is true, provide the optimal DuckDuckGo search query to find the answer. Otherwise, leave empty.")
 
 email_classifier_parser = PydanticOutputParser(pydantic_object=EmailClassification)
 
@@ -60,6 +62,13 @@ EMAIL_CLASSIFICATION_PROMPT = (
     PromptTemplate(
         template="""
 You are a helpful assistant that classifies incoming emails. Follow the schema below and output only JSON adhering to it.
+
+CRITICAL ROUTING RULES:
+- If the email is about a server crash, production being down, or an urgent internal escalation, you MUST classify it as "flag".
+- If the email is a vendor proposal, sales pitch, or offering services (e.g., cloud hosting), you MUST classify it as "forward".
+- If the email is a customer support request (e.g., password reset), classify as "reply".
+- If it is a newsletter requiring no action, classify as "skip".
+- If the email mentions specific companies, events, or questions requiring outside facts, set `needs_research` to true and provide a `research_query`.
 
 {format_instructions}
 
@@ -105,26 +114,30 @@ Email content:
 # 3. Draft Reply
 # ------------------------------------------------------------
 class DraftReply(BaseModel):
-    reply: str = Field(..., description="Full draft reply to be sent to the email sender")
-
-draft_reply_parser = PydanticOutputParser(pydantic_object=DraftReply)
+    """Output schema for the drafting node."""
+    reply: str = Field(description="The generated email reply body.")
 
 DRAFT_REPLY_PROMPT = (
     PromptTemplate(
         template="""
-Generate a concise reply to the email according to the supplied tone.
+You are drafting a professional reply to the following email.
+Ensure the tone is {tone}.
+If any research context is provided below, incorporate it seamlessly into your response to provide accurate factual details.
 
-{format_instructions}
+<research_context>
+{research_context}
+</research_context>
 
-Email content:
+Email to reply to:
 {email_body}
 
-Desired tone: {tone}
+Respond with only a JSON object adhering to this schema:
+{format_instructions}
 """,
-        input_variables=["email_body", "tone"],
-        partial_variables={"format_instructions": draft_reply_parser.get_format_instructions()},
+        input_variables=["email_body", "tone", "research_context"],
+        partial_variables={"format_instructions": PydanticOutputParser(pydantic_object=DraftReply).get_format_instructions()}
     ),
-    draft_reply_parser,
+    PydanticOutputParser(pydantic_object=DraftReply),
 )
 
 # Export convenient names

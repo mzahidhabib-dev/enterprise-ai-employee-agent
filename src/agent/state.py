@@ -39,3 +39,6 @@ class AgentState(TypedDict):
     
     # Flag to determine if an alert should be sent via Slack node
     should_alert: bool
+    
+    # Retrieved web data from the research node
+    research_context: Optional[str]
